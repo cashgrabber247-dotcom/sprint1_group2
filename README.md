@@ -30,18 +30,18 @@ Includes interactive visualizations & KPI tracking.
 Focuses on innovation and advanced techniques.  
 Includes machine learning or optimization methods and a final integrated system.
 
-##tools used
+###tools used
 -Python
 -pandas
 -Matplotlib
 -Seaborn
 
-##files
+###files
 -Milestone2.ipynb
 -Milestone1.ipynb
 -E-commerce Customer Behavior - Sheet1.csv
 
-##authors
+###authors
 Enoch Toroitoch SCT213-C002-0082/2024
 Emmanuel Denzel Opiyo SCT213-C002-0013/2024
 Cedric Baraka SCT213-C002-0111/2024
