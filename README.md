@@ -6,7 +6,7 @@ E-commerce Customer Bahavior Dataset analysis
 
 ##objectives
 -Analysis of customer bahavior 
--identification of ttrends and patterns
+-identification of trends and patterns
 -appliation of visualization techniques
 
 ##tools used
@@ -16,8 +16,8 @@ E-commerce Customer Bahavior Dataset analysis
 -Seaborn
 
 ##files
--Milestone2(2).ipynb
--DataVisulisation fin.ipynb
+-Milestone2.ipynb
+-Milestone1.ipynb
 -E-commerce Customer Behavior - Sheet1.csv
 
 ##authors
