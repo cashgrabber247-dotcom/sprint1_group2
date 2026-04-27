@@ -2,7 +2,7 @@
 E-commerce Customer Bahavior Dataset analysis 
 
 ##overview
-this project peforms visualization and exploratory data analysisi on an e-commerce dataset from Kaggle.com
+-This project peforms visualization and exploratory data analysisi on an e-commerce dataset from Kaggle.com
 
 ##objectives
 -Analysis of customer bahavior 
