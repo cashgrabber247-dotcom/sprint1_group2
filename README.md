@@ -40,4 +40,5 @@ Includes machine learning or optimization methods and a final integrated system.
 - Enoch Toroitoch — SCT213-C002-0082/2024  
 - Emmanuel Denzel Opiyo — SCT213-C002-0013/2024  
 - Cedric Baraka — SCT213-C002-0111/2024  
-- Gadamba Grace — SCT213-C002-0075/2024  
+- Gadamba Grace — SCT213-C002-0075/2024
+- Mabarak Abdala - SCT213-C002-0052/2024
