@@ -1,0 +1,446 @@
+import pandas as pd
+import numpy as np
+import dash
+from dash import dcc, html
+import dash.dependencies as dd
+import plotly.express as px
+import plotly.figure_factory as ff
+import plotly.graph_objects as go
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, classification_report
+from skopt import BayesSearchCV
+
+
+#DATA CLEANING & FEATURE ENGINEERING
+
+df = pd.read_csv(r"C:\Users\denze\OneDrive\Desktop\Assignment 2.2\E-commerce Customer Behavior - Sheet1.csv")
+
+df.isnull().sum()
+
+dtype = (df['Satisfaction Level'].dtype)
+
+df = df.dropna(subset=['Satisfaction Level'])  # dropping the null values in satisfaction level
+
+df.isnull().sum()
+
+sum(df.duplicated())  # checking for duplicated values
+
+# Checking for errors caused by unwanted spaces
+df['Gender'].unique()
+df['City'].unique()
+df.info()
+
+# Simplifying the spending value of a customer to three levels
+df['Customer_Value'] = pd.cut(df['Total Spend'],
+                              [0, 500, 1000, 2000],
+                              labels=['Low', 'Medium', 'High'])
+
+# Average spend per item
+df['Avg_Spend_Per_Item'] = df['Total Spend'] / df['Items Purchased']
+
+# Show how active a customer is
+df['Customer_Activity'] = pd.cut(
+    df['Days Since Last Purchase'],
+    bins=[0, 30, 90, 365],
+    labels=['Active', 'Warm', 'Inactive']
+)
+
+# Group-level aggregations
+df.groupby('Membership Type')['Total Spend'].mean()
+df.groupby('City')['Total Spend'].mean()
+df.groupby('Gender')['Total Spend'].mean()
+
+# Satisfaction score mapping
+satisfaction_mapping = {
+    'Unsatisfied': 1,
+    'Neutral': 2,
+    'Satisfied': 3
+}
+df['Satisfaction_Score'] = df['Satisfaction Level'].map(satisfaction_mapping)
+df.groupby('City')['Satisfaction_Score'].mean()
+
+df.to_csv("cleaned_ecommerce.csv", index=False)
+
+#ML MODEL — Random Forest with Bayesian Optimization (original logic preserved)
+
+df_ml = pd.read_csv("cleaned_ecommerce.csv")
+
+# Encode categorical features for ML
+le = LabelEncoder()
+df_encoded = df_ml.copy()
+cat_cols = df_encoded.select_dtypes(include=['object', 'string']).columns.tolist()
+cat_cols = [c for c in cat_cols if c != 'Satisfaction Level']
+for col in cat_cols:
+    df_encoded[col] = le.fit_transform(df_encoded[col].astype(str))
+
+# Also encode engineered categoricals
+for col in ['Customer_Value', 'Customer_Activity']:
+    if col in df_encoded.columns:
+        df_encoded[col] = le.fit_transform(df_encoded[col].astype(str))
+
+X = df_encoded.drop("Satisfaction Level", axis=1)
+y = df_encoded["Satisfaction Level"]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+rf = RandomForestClassifier(random_state=42)
+opt = BayesSearchCV(
+    rf,
+    {
+        'n_estimators': (50, 500),
+        'max_depth': (3, 20),
+        'min_samples_split': (2, 10),
+        'min_samples_leaf': (1, 5)
+    },
+    n_iter=32,
+    cv=3,
+    random_state=42
+)
+opt.fit(X_train, y_train)
+
+best_rf = opt.best_estimator_
+y_pred = best_rf.predict(X_test)
+
+print(classification_report(y_test, y_pred))
+
+# Feature importance for research visualization
+feature_importance_df = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': best_rf.feature_importances_
+}).sort_values('Importance', ascending=False).head(10)
+
+# Build initial confusion matrix figure
+def build_confusion_matrix(n_refresh=0):
+    cm = confusion_matrix(y_test, y_pred, labels=best_rf.classes_)
+    fig_cm = ff.create_annotated_heatmap(
+        cm.astype(int),
+        x=list(best_rf.classes_),
+        y=list(best_rf.classes_),
+        colorscale='Blues'
+    )
+    fig_cm.update_layout(
+        title=f"Confusion Matrix — Satisfaction Prediction (refresh #{n_refresh})",
+        paper_bgcolor='#0f1117',
+        plot_bgcolor='#0f1117',
+        font=dict(color='#e0e0e0'),
+        title_font=dict(size=16),
+        margin=dict(t=60, b=40, l=40, r=40)
+    )
+    return fig_cm
+
+fig_cm = build_confusion_matrix()
+
+# Feature importance chart
+fig_fi = px.bar(
+    feature_importance_df,
+    x='Importance', y='Feature',
+    orientation='h',
+    title='Top 10 Feature Importances (Random Forest)',
+    color='Importance',
+    color_continuous_scale='Teal'
+)
+fig_fi.update_layout(
+    paper_bgcolor='#0f1117',
+    plot_bgcolor='#161b22',
+    font=dict(color='#e0e0e0'),
+    yaxis=dict(autorange='reversed'),
+    margin=dict(t=50, b=40, l=10, r=10)
+)
+
+
+# DASH APPLICATION
+
+
+app = dash.Dash(__name__)
+app.title = "E-Commerce Analytics Dashboard"
+
+#Colour tokens 
+BG        = '#0f1117'
+SURFACE   = '#161b22'
+SURFACE2  = '#1e2530'
+ACCENT    = '#00d4aa'
+ACCENT2   = '#ff6b6b'
+TEXT      = '#e0e0e0'
+MUTED     = '#8b9ab0'
+BORDER    = '#2a3444'
+RED       = "#f31212"
+GREEN     = "#12f312"
+
+card_style = {
+    'background': SURFACE,
+    'border': f'1px solid {BORDER}',
+    'borderRadius': '12px',
+    'padding': '20px',
+    'flex': '1',
+    'minWidth': '160px',
+    'textAlign': 'center'
+}
+
+kpi_label_style = {'color': MUTED, 'fontSize': '12px', 'letterSpacing': '1.5px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+kpi_value_style = {'color': ACCENT, 'fontSize': '26px', 'fontWeight': '700',
+                   'fontFamily': 'monospace'}
+
+chart_config = dict(
+    paper_bgcolor=BG,
+    plot_bgcolor=SURFACE,
+    font=dict(color=GREEN, family='monospace'),
+    margin=dict(t=50, b=40, l=40, r=20)
+)
+
+# Layout
+app.layout = html.Div(style={'backgroundColor': BG, 'minHeight': '100vh',
+                              'fontFamily': "'Courier New', monospace", 'color': TEXT,
+                              'padding': '30px'}, children=[
+
+    # Header
+    html.Div(style={'borderBottom': f'2px solid {ACCENT}', 'paddingBottom': '16px',
+                    'marginBottom': '30px'}, children=[
+        html.H1("E-Commerce Visual Analytics System",
+                style={'color': ACCENT, 'fontSize': '28px', 'margin': '0',
+                       'letterSpacing': '2px', 'textTransform': 'uppercase'}),
+        html.P("Milestone 5 & 6 — Interactive Dashboard + ML Research Layer",
+               style={'color': MUTED, 'margin': '6px 0 0 0', 'fontSize': '13px'})
+    ]),
+
+    #Filters row
+    html.Div(style={'display': 'flex', 'gap': '20px', 'marginBottom': '24px',
+                    'flexWrap': 'wrap'}, children=[
+        html.Div(style={'flex': '1', 'minWidth': '200px'}, children=[
+            html.Label("Membership Type", style={'color': MUTED, 'fontSize': '11px',
+                                                  'letterSpacing': '1px',
+                                                  'textTransform': 'uppercase'}),
+            dcc.Dropdown(
+                id='membership-filter',
+                options=[{"label": m, "value": m} for m in df_ml["Membership Type"].unique()],
+                value=df_ml["Membership Type"].unique()[0],
+                style={'backgroundColor': SURFACE2, 'color': RED, 'border': f'1px solid {BORDER}',
+                       'borderRadius': '8px'},
+                className='dark-dropdown'
+            )
+        ]),
+        html.Div(style={'flex': '1', 'minWidth': '200px'}, children=[
+            html.Label("Satisfaction Level", style={'color': MUTED, 'fontSize': '11px',
+                                                     'letterSpacing': '1px',
+                                                     'textTransform': 'uppercase'}),
+            dcc.Dropdown(
+                id='satisfaction-filter',
+                options=[{"label": s, "value": s} for s in df_ml["Satisfaction Level"].unique()],
+                value=df_ml["Satisfaction Level"].unique()[0],
+                style={'backgroundColor': SURFACE2, 'color': RED, 'border': f'1px solid {BORDER}',
+                       'borderRadius': '8px'}
+            )
+        ]),
+        html.Div(style={'flex': '1', 'minWidth': '200px'}, children=[
+            html.Label("City", style={'color': MUTED, 'fontSize': '11px',
+                                       'letterSpacing': '1px', 'textTransform': 'uppercase'}),
+            dcc.Dropdown(
+                id='city-filter',
+                options=[{"label": "All Cities", "value": "All"}] +
+                        [{"label": c, "value": c} for c in sorted(df_ml["City"].unique())],
+                value="All",
+                style={'backgroundColor': SURFACE2, 'color': RED, 'border': f'1px solid {BORDER}',
+                       'borderRadius': '8px'}
+            )
+        ]),
+        html.Div(style={'flex': '1', 'minWidth': '200px'}, children=[
+            html.Label("Gender", style={'color': MUTED, 'fontSize': '11px',
+                                         'letterSpacing': '1px', 'textTransform': 'uppercase'}),
+            dcc.Dropdown(
+                id='gender-filter',
+                options=[{"label": "All", "value": "All"}] +
+                        [{"label": g, "value": g} for g in df_ml["Gender"].unique()],
+                value="All",
+                style={'backgroundColor': SURFACE2, 'color': RED, 'border': f'1px solid {BORDER}',
+                       'borderRadius': '8px'}
+            )
+        ])
+    ]),
+
+    #KPI row 
+    html.Div(style={'display': 'flex', 'gap': '16px', 'marginBottom': '28px',
+                    'flexWrap': 'wrap'}, children=[
+        html.Div(id='kpi-revenue',    style=card_style),
+        html.Div(id='kpi-avg-spend',  style=card_style),
+        html.Div(id='kpi-high-value', style=card_style),
+        html.Div(id='kpi-active',     style=card_style),
+        html.Div(id='kpi-avg-satisfaction', style=card_style),
+    ]),
+
+    #Row 1 charts
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr',
+                    'gap': '20px', 'marginBottom': '20px'}, children=[
+        dcc.Graph(id='spending-chart'),
+        dcc.Graph(id='satisfaction-chart'),
+    ]),
+
+    #Row 2 charts
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr',
+                    'gap': '20px', 'marginBottom': '20px'}, children=[
+        dcc.Graph(id='activity-chart'),
+        dcc.Graph(id='gender-spend-chart'),
+    ]),
+
+    #Divider: ML Research Section
+    html.Div(style={'borderTop': f'2px solid {ACCENT2}', 'margin': '30px 0 20px',
+                    'paddingTop': '20px'}, children=[
+        html.H2("Research Layer — ML Predictive Analytics",
+                style={'color': ACCENT2, 'fontSize': '18px', 'margin': '0 0 6px 0',
+                       'letterSpacing': '2px', 'textTransform': 'uppercase'}),
+        html.P("Random Forest Classifier with Bayesian Hyperparameter Optimisation",
+               style={'color': MUTED, 'fontSize': '12px', 'margin': '0'})
+    ]),
+
+    #ML KPI row
+    html.Div(style={'display': 'flex', 'gap': '16px', 'marginBottom': '24px',
+                    'flexWrap': 'wrap'}, children=[
+        html.Div(style={**card_style, 'borderColor': ACCENT2}, children=[
+            html.P("Best Estimators", style=kpi_label_style),
+            html.P(str(opt.best_params_.get('n_estimators', '—')), style={**kpi_value_style, 'color': ACCENT2})
+        ]),
+        html.Div(style={**card_style, 'borderColor': ACCENT2}, children=[
+            html.P("Best Max Depth", style=kpi_label_style),
+            html.P(str(opt.best_params_.get('max_depth', '—')), style={**kpi_value_style, 'color': ACCENT2})
+        ]),
+        html.Div(style={**card_style, 'borderColor': ACCENT2}, children=[
+            html.P("CV Score", style=kpi_label_style),
+            html.P(f"{opt.best_score_:.3f}", style={**kpi_value_style, 'color': ACCENT2})
+        ]),
+        html.Div(style={**card_style, 'borderColor': ACCENT2}, children=[
+            html.P("Test Samples", style=kpi_label_style),
+            html.P(str(len(y_test)), style={**kpi_value_style, 'color': ACCENT2})
+        ]),
+    ]),
+
+    #ML charts row
+    html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr',
+                    'gap': '20px', 'marginBottom': '20px'}, children=[
+        dcc.Graph(id='confusion-matrix', figure=fig_cm),
+        dcc.Graph(id='feature-importance', figure=fig_fi),
+    ]),
+
+    #Streaming interval
+    dcc.Interval(
+        id='interval-component',
+        interval= 30 * 1000,
+        n_intervals=0
+    )
+])
+
+
+# CALLBACKS
+
+
+@app.callback(
+    [
+        dd.Output("kpi-revenue",           "children"),
+        dd.Output("kpi-avg-spend",         "children"),
+        dd.Output("kpi-high-value",        "children"),
+        dd.Output("kpi-active",            "children"),
+        dd.Output("kpi-avg-satisfaction",  "children"),
+        dd.Output("spending-chart",        "figure"),
+        dd.Output("satisfaction-chart",    "figure"),
+        dd.Output("activity-chart",        "figure"),
+        dd.Output("gender-spend-chart",    "figure"),
+    ],
+    [
+        dd.Input("membership-filter",   "value"),
+        dd.Input("satisfaction-filter", "value"),
+        dd.Input("city-filter",         "value"),
+        dd.Input("gender-filter",       "value"),
+    ]
+)
+def update_dashboard(membership, satisfaction, city, gender):
+    #Filter
+    filtered = df_ml[
+        (df_ml["Membership Type"] == membership) &
+        (df_ml["Satisfaction Level"] == satisfaction)
+    ]
+    if city != "All":
+        filtered = filtered[filtered["City"] == city]
+    if gender != "All":
+        filtered = filtered[filtered["Gender"] == gender]
+
+    #KPIs
+    total_rev  = filtered['Total Spend'].sum()
+    avg_spend  = filtered['Avg_Spend_Per_Item'].mean() if len(filtered) > 0 else 0
+    high_val   = (filtered['Customer_Value'] == 'High').sum()
+    active_c   = (filtered['Customer_Activity'] == 'Active').sum()
+    avg_sat    = filtered['Satisfaction_Score'].mean() if 'Satisfaction_Score' in filtered.columns and len(filtered) > 0 else 0
+
+    def kpi_card(label, value):
+        return html.Div([
+            html.P(label, style=kpi_label_style),
+            html.P(value, style=kpi_value_style)
+        ])
+
+    kpi1 = kpi_card("Total Revenue",        f"${total_rev:,.0f}")
+    kpi2 = kpi_card("Avg Spend / Item",     f"${avg_spend:,.2f}")
+    kpi3 = kpi_card("High-Value Customers", str(high_val))
+    kpi4 = kpi_card("Active Customers",     str(active_c))
+    kpi5 = kpi_card("Avg Satisfaction",     f"{avg_sat:.2f} / 3")
+
+    base_layout = dict(
+        paper_bgcolor=BG, plot_bgcolor=SURFACE,
+        font=dict(color=TEXT, family='monospace'),
+        margin=dict(t=50, b=40, l=40, r=20)
+    )
+
+    #Chart 1: Spending Distribution
+    fig1 = px.histogram(filtered, x="Total Spend", color="Customer_Value", nbins=30,
+                        title="Spending Distribution by Customer Value",
+                        color_discrete_map={'Low': '#ff6b6b', 'Medium': '#ffd166', 'High': '#00d4aa'})
+    fig1.update_layout(**base_layout)
+
+    #Chart 2: Satisfaction Breakdown by City
+    sat_counts = filtered.groupby("City")["Satisfaction Level"].value_counts().reset_index(name="Count")
+    fig2 = px.bar(sat_counts, x="City", y="Count", color="Satisfaction Level", barmode="group",
+                  title="Satisfaction Breakdown by City",
+                  color_discrete_map={'Satisfied': '#00d4aa', 'Neutral': '#ffd166', 'Unsatisfied': '#ff6b6b'})
+    fig2.update_layout(**base_layout)
+
+    #Chart 3: Activity vs Spending box plot
+    fig3 = px.box(filtered, x="Customer_Activity", y="Total Spend", color="Customer_Activity",
+                  title="Customer Activity vs Spending",
+                  color_discrete_map={'Active': '#00d4aa', 'Warm': '#ffd166', 'Inactive': '#ff6b6b'})
+    fig3.update_layout(**base_layout)
+
+    #Chart 4: Gender spend comparison
+    gender_data = filtered.groupby('Gender')['Total Spend'].mean().reset_index()
+    fig4 = px.bar(gender_data, x='Gender', y='Total Spend',
+                  title='Avg Spend by Gender',
+                  color='Gender',
+                  color_discrete_sequence=['#00d4aa', '#ff6b6b', '#ffd166'])
+    fig4.update_layout(**base_layout)
+
+    return kpi1, kpi2, kpi3, kpi4, kpi5, fig1, fig2, fig3, fig4
+
+
+#Streaming confusion matrix refresh (original logic preserved)
+@app.callback(
+    dd.Output("confusion-matrix", "figure"),
+    dd.Input("interval-component", "n_intervals")
+)
+def update_confusion_matrix(n_intervals):
+    y_pred_live = best_rf.predict(X_test)
+    cm = confusion_matrix(y_test, y_pred_live, labels=best_rf.classes_)
+    fig_cm_live = ff.create_annotated_heatmap(
+        cm.astype(int),
+        x=list(best_rf.classes_),
+        y=list(best_rf.classes_),
+        colorscale='Blues'
+    )
+    fig_cm_live.update_layout(
+        title=f"Confusion Matrix — Satisfaction Prediction (refresh #{n_intervals})",
+        paper_bgcolor=BG,
+        plot_bgcolor=BG,
+        font=dict(color=TEXT),
+        margin=dict(t=60, b=40, l=40, r=40)
+    )
+    return fig_cm_live
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
